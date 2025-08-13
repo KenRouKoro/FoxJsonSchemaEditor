@@ -1,11 +1,13 @@
 <template>
   <div id="app">
     <NMessageProvider>
-      <router-view />
+      <NDialogProvider>
+        <router-view />
+      </NDialogProvider>
     </NMessageProvider>
   </div>
 </template>
 
 <script setup lang="ts">
-import { NMessageProvider } from 'naive-ui'
+import { NMessageProvider, NDialogProvider } from 'naive-ui'
 </script>

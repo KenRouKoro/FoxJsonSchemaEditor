@@ -9,13 +9,23 @@ import {
   NSpace,
   useMessage
 } from 'naive-ui'
-import { Copy, Download, Upload } from 'lucide-vue-next'
+import { Copy, Download, Upload, Trash2 } from 'lucide-vue-next'
 import MonacoEditor from './MonacoEditor.vue'
 import SchemaVisualEditor from './SchemaVisualEditor.vue'
 import { validateJsonSchema } from '../lib/schemaValidator'
+import { useSchemaStorage } from '../composables/useLocalStorage'
 
-// 响应式数据
-const jsonSchemaText = ref(`{
+// 浏览器存储
+const {
+  saveSchema,
+  getSavedSchema,
+  hasSavedData,
+  getLastModified,
+  clearSavedData
+} = useSchemaStorage()
+
+// 默认 Schema
+const defaultSchema = `{
   "type": "object",
   "properties": {
     "name": {
@@ -29,13 +39,17 @@ const jsonSchemaText = ref(`{
     }
   },
   "required": ["name"]
-}`)
+}`
+
+// 响应式数据
+const jsonSchemaText = ref(defaultSchema)
 
 const schemaObject = ref<any>({})
 const validationErrors = ref<string[]>([])
 const validationWarnings = ref<string[]>([])
 const isValidSchema = ref(true)
 const message = useMessage()
+const hasAutoSaved = ref(false)
 
 // 解析 JSON Schema 文本
 const parseJsonSchema = () => {
@@ -62,8 +76,15 @@ const parseJsonSchema = () => {
   }
 }
 
-// 监听文本变化
-watch(jsonSchemaText, parseJsonSchema, { immediate: true })
+// 监听文本变化并自动保存
+watch(jsonSchemaText, (newValue) => {
+  parseJsonSchema()
+  // 自动保存到本地存储（防抖处理）
+  if (newValue.trim() !== '' && newValue !== defaultSchema) {
+    saveSchema(newValue)
+    hasAutoSaved.value = true
+  }
+}, { immediate: true })
 
 // 从可视化编辑器更新 Schema
 const updateSchemaFromVisual = (newSchema: any) => {
@@ -243,9 +264,36 @@ const generateSampleFromSchema = (schema: any): any => {
   }
 }
 
-// 组件挂载时添加键盘事件监听
+// 清除保存的数据
+const clearStoredData = () => {
+  if (confirm('确定要清除所有保存的数据吗？此操作不可撤销。')) {
+    clearSavedData()
+    jsonSchemaText.value = defaultSchema
+    hasAutoSaved.value = false
+    message.success('已清除保存的数据')
+  }
+}
+
+// 恢复保存的数据
+const restoreSavedData = () => {
+  if (hasSavedData()) {
+    const savedSchema = getSavedSchema()
+    const lastModified = getLastModified()
+    
+    // 默认自动恢复数据，不显示弹窗
+    jsonSchemaText.value = savedSchema
+    hasAutoSaved.value = true
+    message.success(`已自动恢复保存的数据（最后修改：${lastModified.toLocaleString()}）`)
+  }
+}
+
+// 组件挂载时添加键盘事件监听和恢复数据
 onMounted(() => {
   document.addEventListener('keydown', handleKeydown)
+  // 延迟检查保存的数据，避免与初始化冲突
+  setTimeout(() => {
+    restoreSavedData()
+  }, 500)
 })
 
 // 组件卸载时移除键盘事件监听
@@ -291,23 +339,36 @@ onUnmounted(() => {
             </template>
             导出
           </NButton>
+          <NButton @click="clearStoredData" secondary type="error" title="清除保存的数据">
+            <template #icon>
+              <Trash2 :size="16" />
+            </template>
+            清除数据
+          </NButton>
         </NSpace>
       </div>
       
       <!-- 验证状态和快捷键提示 -->
       <div class="mt-2 flex items-center justify-between">
         <div class="flex-1">
-          <div v-if="isValidSchema" class="text-green-600 text-sm">
-            ✓ Schema 格式正确
-            <span v-if="validationWarnings.length > 0" class="text-yellow-600 ml-2">
-              ({{ validationWarnings.length }} 个警告)
-            </span>
-          </div>
-          <div v-else class="text-red-600 text-sm">
-            ✗ Schema 验证失败: {{ validationErrors.join(', ') }}
-          </div>
-          <div v-if="validationWarnings.length > 0" class="text-yellow-600 text-xs mt-1">
-            ⚠ 警告: {{ validationWarnings.join('; ') }}
+          <div class="flex items-center gap-4">
+            <div>
+              <div v-if="isValidSchema" class="text-green-600 text-sm">
+                ✓ Schema 格式正确
+                <span v-if="validationWarnings.length > 0" class="text-yellow-600 ml-2">
+                  ({{ validationWarnings.length }} 个警告)
+                </span>
+              </div>
+              <div v-else class="text-red-600 text-sm">
+                ✗ Schema 验证失败: {{ validationErrors.join(', ') }}
+              </div>
+              <div v-if="validationWarnings.length > 0" class="text-yellow-600 text-xs mt-1">
+                ⚠ 警告: {{ validationWarnings.join('; ') }}
+              </div>
+            </div>
+            <div v-if="hasAutoSaved" class="text-blue-600 text-sm flex items-center gap-1">
+              💾 已自动保存
+            </div>
           </div>
         </div>
         <div class="text-xs text-gray-500 ml-4">
